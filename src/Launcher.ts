@@ -24,14 +24,14 @@ import { BrowserFetcher } from './BrowserFetcher';
 import { Connection } from './Connection';
 import { Browser } from './Browser';
 import { helper, assert, debugError } from './helper';
-import type { ConnectionTransport } from './ConnectionTransport';
+import { ConnectionTransport } from './ConnectionTransport';
 import { WebSocketTransport } from './WebSocketTransport';
 import { BrowserRunner } from './launcher/BrowserRunner';
 
 const mkdtempAsync = helper.promisify(fs.mkdtemp);
 const writeFileAsync = helper.promisify(fs.writeFile);
 
-import type {
+import {
   ChromeArgOptions,
   LaunchOptions,
   BrowserOptions,
@@ -106,7 +106,9 @@ class ChromeLauncher implements ProductLauncher {
     }
 
     let chromeExecutable = executablePath;
-    if (!executablePath) {
+    if (os.arch() === 'arm64') {
+      chromeExecutable = '/usr/bin/chromium-browser';
+    } else if (!executablePath) {
       const { missingText, executablePath } = resolveExecutablePath(this);
       if (missingText) throw new Error(missingText);
       chromeExecutable = executablePath;
@@ -152,7 +154,7 @@ class ChromeLauncher implements ProductLauncher {
 
   /**
    * @param {!Launcher.ChromeArgOptions=} options
-   * @return {!Array<string>}
+   * @returns {!Array<string>}
    */
   defaultArgs(options: ChromeArgOptions = {}): string[] {
     const chromeArguments = [

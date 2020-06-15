@@ -21,6 +21,7 @@ import { CDPSession } from './Connection';
 import { KeyInput } from './USKeyboardLayout';
 import { FrameManager, Frame } from './FrameManager';
 import { getQueryHandlerAndSelector } from './QueryHandler';
+import Protocol from './protocol';
 
 interface BoxModel {
   content: Array<{ x: number; y: number }>;
@@ -218,7 +219,7 @@ export class ElementHandle extends JSHandle {
         }
         return false;
       },
-      this._page._javascriptEnabled
+      this._page.isJavaScriptEnabled()
     );
 
     if (error) throw new Error(error);
@@ -436,7 +437,7 @@ export class ElementHandle extends JSHandle {
   }
 
   /**
-   * @return {!Promise<?BoxModel>}
+   * @returns {!Promise<?BoxModel>}
    */
   async boxModel(): Promise<BoxModel | null> {
     const result = await this._getBoxModel();

@@ -21,6 +21,8 @@ const os = require('os');
 const sinon = require('sinon');
 const puppeteer = require('../');
 const utils = require('./utils');
+const rimraf = require('rimraf');
+
 const { trackCoverage } = require('./coverage-utils');
 
 const setupServer = async () => {
@@ -51,17 +53,32 @@ exports.getTestState = () => state;
 const product =
   process.env.PRODUCT || process.env.PUPPETEER_PRODUCT || 'Chromium';
 
+const alternativeInstall = process.env.PUPPETEER_ALT_INSTALL || false;
+
 const isHeadless =
   (process.env.HEADLESS || 'true').trim().toLowerCase() === 'true';
 const isFirefox = product === 'firefox';
 const isChrome = product === 'Chromium';
-const defaultBrowserOptions = {
-  handleSIGINT: false,
-  executablePath: process.env.BINARY,
-  slowMo: false,
-  headless: isHeadless,
-  dumpio: !!process.env.DUMPIO,
-};
+
+let extraLaunchOptions = {};
+try {
+  extraLaunchOptions = JSON.parse(process.env.EXTRA_LAUNCH_OPTIONS || '{}');
+} catch (error) {
+  console.warn(
+    `Error parsing EXTRA_LAUNCH_OPTIONS: ${error.message}. Skipping.`
+  );
+}
+
+const defaultBrowserOptions = Object.assign(
+  {
+    handleSIGINT: true,
+    executablePath: process.env.BINARY,
+    slowMo: false,
+    headless: isHeadless,
+    dumpio: !!process.env.DUMPIO,
+  },
+  extraLaunchOptions
+);
 
 (async () => {
   if (defaultBrowserOptions.executablePath) {
@@ -82,7 +99,7 @@ const setupGoldenAssertions = () => {
   const suffix = product.toLowerCase();
   const GOLDEN_DIR = path.join(__dirname, 'golden-' + suffix);
   const OUTPUT_DIR = path.join(__dirname, 'output-' + suffix);
-  if (fs.existsSync(OUTPUT_DIR)) rm(OUTPUT_DIR);
+  if (fs.existsSync(OUTPUT_DIR)) rimraf.sync(OUTPUT_DIR);
   utils.extendExpectWithToBeGolden(GOLDEN_DIR, OUTPUT_DIR);
 };
 
@@ -92,6 +109,16 @@ const state = {};
 
 global.itFailsFirefox = (...args) => {
   if (isFirefox) return xit(...args);
+  else return it(...args);
+};
+
+global.itChromeOnly = (...args) => {
+  if (isChrome) return it(...args);
+  else return xit(...args);
+};
+
+global.itOnlyRegularInstall = (...args) => {
+  if (alternativeInstall || process.env.BINARY) return xit(...args);
   else return it(...args);
 };
 
@@ -118,7 +145,10 @@ if (process.env.COVERAGE) trackCoverage();
 console.log(
   `Running unit tests with:
   -> product: ${product}
-  -> binary: ${path.relative(process.cwd(), puppeteer.executablePath())}`
+  -> binary: ${
+    defaultBrowserOptions.executablePath ||
+    path.relative(process.cwd(), puppeteer.executablePath())
+  }`
 );
 
 exports.setupTestBrowserHooks = () => {

@@ -22,11 +22,11 @@ import * as childProcess from 'child_process';
 import * as https from 'https';
 import * as http from 'http';
 
-import * as extractZip from 'extract-zip';
-import * as debug from 'debug';
-import * as removeRecursive from 'rimraf';
+import extractZip from 'extract-zip';
+import debug from 'debug';
+import removeRecursive from 'rimraf';
 import * as URL from 'url';
-import * as ProxyAgent from 'https-proxy-agent';
+import ProxyAgent from 'https-proxy-agent';
 import { getProxyForUrl } from 'proxy-from-env';
 
 import { helper, assert } from './helper';
@@ -84,7 +84,7 @@ function archiveName(
  * @param {string} platform
  * @param {string} host
  * @param {string} revision
- * @return {string}
+ * @returns {string}
  */
 function downloadURL(
   product: Product,
@@ -101,6 +101,16 @@ function downloadURL(
   return url;
 }
 
+function handleArm64() {
+  fs.stat('/usr/bin/chromium-browser', function (err, stats) {
+    if (stats === undefined) {
+      console.error(`The chromium binary is not available for arm64: `);
+      console.error(`If you are on Ubuntu, you can install with: `);
+      console.error(`\n apt-get install chromium-browser\n`);
+      throw new Error();
+    }
+  });
+}
 const readdirAsync = helper.promisify(fs.readdir.bind(fs));
 const mkdirAsync = helper.promisify(fs.mkdir.bind(fs));
 const unlinkAsync = helper.promisify(fs.unlink.bind(fs));
@@ -201,7 +211,7 @@ export class BrowserFetcher {
   /**
    * @param {string} revision
    * @param {?function(number, number):void} progressCallback
-   * @return {!Promise<!BrowserFetcher.RevisionInfo>}
+   * @returns {!Promise<!BrowserFetcher.RevisionInfo>}
    */
   async download(
     revision: string,
@@ -219,6 +229,10 @@ export class BrowserFetcher {
     if (await existsAsync(outputPath)) return this.revisionInfo(revision);
     if (!(await existsAsync(this._downloadsFolder)))
       await mkdirAsync(this._downloadsFolder);
+    if (os.arch() === 'arm64') {
+      handleArm64();
+      return;
+    }
     try {
       await downloadFile(url, archivePath, progressCallback);
       await install(archivePath, outputPath);
@@ -318,7 +332,7 @@ export class BrowserFetcher {
 
   /**
    * @param {string} revision
-   * @return {string}
+   * @returns {string}
    */
   _getFolderPath(revision: string): string {
     return path.join(this._downloadsFolder, this._platform + '-' + revision);
@@ -341,7 +355,7 @@ function parseFolderPath(
  * @param {string} url
  * @param {string} destinationPath
  * @param {?function(number, number):void} progressCallback
- * @return {!Promise}
+ * @returns {!Promise}
  */
 function downloadFile(
   url: string,
@@ -403,7 +417,7 @@ function install(archivePath: string, folderPath: string): Promise<unknown> {
 /**
  * @param {string} tarPath
  * @param {string} folderPath
- * @return {!Promise<?Error>}
+ * @returns {!Promise<?Error>}
  */
 function extractTar(tarPath: string, folderPath: string): Promise<unknown> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -415,9 +429,6 @@ function extractTar(tarPath: string, folderPath: string): Promise<unknown> {
     tarStream.on('error', reject);
     tarStream.on('finish', fulfill);
     const readStream = fs.createReadStream(tarPath);
-    readStream.on('data', () => {
-      process.stdout.write('\rExtracting...');
-    });
     readStream.pipe(bzip()).pipe(tarStream);
   });
 }
@@ -427,7 +438,7 @@ function extractTar(tarPath: string, folderPath: string): Promise<unknown> {
  *
  * @param {string} dmgPath
  * @param {string} folderPath
- * @return {!Promise<?Error>}
+ * @returns {!Promise<?Error>}
  */
 function installDMG(dmgPath: string, folderPath: string): Promise<void> {
   let mountPath;

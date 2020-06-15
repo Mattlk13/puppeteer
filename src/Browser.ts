@@ -16,12 +16,13 @@
 
 import { helper, assert } from './helper';
 import { Target } from './Target';
-import * as EventEmitter from 'events';
+import { EventEmitter } from './EventEmitter';
 import { Events } from './Events';
+import Protocol from './protocol';
 import { Connection } from './Connection';
 import { Page } from './Page';
 import { ChildProcess } from 'child_process';
-import type { Viewport } from './PuppeteerViewport';
+import { Viewport } from './PuppeteerViewport';
 
 type BrowserCloseCallback = () => Promise<void> | void;
 
@@ -223,7 +224,7 @@ export class Browser extends EventEmitter {
   /**
    * @param {function(!Target):boolean} predicate
    * @param {{timeout?: number}=} options
-   * @return {!Promise<!Target>}
+   * @returns {!Promise<!Target>}
    */
   async waitForTarget(
     predicate: (x: Target) => boolean,

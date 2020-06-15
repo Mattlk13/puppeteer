@@ -15,11 +15,13 @@
  */
 import { assert } from './helper';
 import { Events } from './Events';
-import * as debug from 'debug';
-const debugProtocol = debug('puppeteer:protocol');
+import debug from 'debug';
+const debugProtocolSend = debug('puppeteer:protocol:SEND ►');
+const debugProtocolReceive = debug('puppeteer:protocol:RECV ◀');
 
-import type { ConnectionTransport } from './ConnectionTransport';
-import * as EventEmitter from 'events';
+import Protocol from './protocol';
+import { ConnectionTransport } from './ConnectionTransport';
+import { EventEmitter } from './EventEmitter';
 
 interface ConnectionCallback {
   resolve: Function;
@@ -54,7 +56,7 @@ export class Connection extends EventEmitter {
 
   /**
    * @param {string} sessionId
-   * @return {?CDPSession}
+   * @returns {?CDPSession}
    */
   session(sessionId: string): CDPSession | null {
     return this._sessions.get(sessionId) || null;
@@ -77,14 +79,14 @@ export class Connection extends EventEmitter {
   _rawSend(message: {}): number {
     const id = ++this._lastId;
     message = JSON.stringify(Object.assign({}, message, { id }));
-    debugProtocol('SEND ► ' + message);
+    debugProtocolSend(message);
     this._transport.send(message);
     return id;
   }
 
   async _onMessage(message: string): Promise<void> {
     if (this._delay) await new Promise((f) => setTimeout(f, this._delay));
-    debugProtocol('◀ RECV ' + message);
+    debugProtocolReceive(message);
     const object = JSON.parse(message);
     if (object.method === 'Target.attachedToTarget') {
       const sessionId = object.params.sessionId;
@@ -145,7 +147,7 @@ export class Connection extends EventEmitter {
 
   /**
    * @param {Protocol.Target.TargetInfo} targetInfo
-   * @return {!Promise<!CDPSession>}
+   * @returns {!Promise<!CDPSession>}
    */
   async createSession(
     targetInfo: Protocol.Target.TargetInfo
@@ -247,7 +249,7 @@ export class CDPSession extends EventEmitter {
  * @param {!Error} error
  * @param {string} method
  * @param {{error: {message: string, data: any}}} object
- * @return {!Error}
+ * @returns {!Error}
  */
 function createProtocolError(
   error: Error,
@@ -262,7 +264,7 @@ function createProtocolError(
 /**
  * @param {!Error} error
  * @param {string} message
- * @return {!Error}
+ * @returns {!Error}
  */
 function rewriteError(error: Error, message: string): Error {
   error.message = message;

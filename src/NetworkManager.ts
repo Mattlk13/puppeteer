@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import * as EventEmitter from 'events';
+import { EventEmitter } from './EventEmitter';
 import { helper, assert, debugError } from './helper';
+import Protocol from './protocol';
 import { Events } from './Events';
 import { CDPSession } from './Connection';
 import { FrameManager } from './FrameManager';
-import { Request } from './Request';
-import { Response } from './Response';
+import { HTTPRequest } from './HTTPRequest';
+import { HTTPResponse } from './HTTPResponse';
 
 export interface Credentials {
   username: string;
@@ -30,7 +31,7 @@ export class NetworkManager extends EventEmitter {
   _client: CDPSession;
   _ignoreHTTPSErrors: boolean;
   _frameManager: FrameManager;
-  _requestIdToRequest = new Map<string, Request>();
+  _requestIdToRequest = new Map<string, HTTPRequest>();
   _requestIdToRequestWillBeSentEvent = new Map<
     string,
     Protocol.Network.requestWillBeSentPayload
@@ -249,7 +250,7 @@ export class NetworkManager extends EventEmitter {
     const frame = event.frameId
       ? this._frameManager.frame(event.frameId)
       : null;
-    const request = new Request(
+    const request = new HTTPRequest(
       this._client,
       frame,
       interceptionId,
@@ -269,10 +270,10 @@ export class NetworkManager extends EventEmitter {
   }
 
   _handleRequestRedirect(
-    request: Request,
+    request: HTTPRequest,
     responsePayload: Protocol.Network.Response
   ): void {
-    const response = new Response(this._client, request, responsePayload);
+    const response = new HTTPResponse(this._client, request, responsePayload);
     request._response = response;
     request._redirectChain.push(request);
     response._resolveBody(
@@ -288,7 +289,7 @@ export class NetworkManager extends EventEmitter {
     const request = this._requestIdToRequest.get(event.requestId);
     // FileUpload sends a response without a matching request.
     if (!request) return;
-    const response = new Response(this._client, request, event.response);
+    const response = new HTTPResponse(this._client, request, event.response);
     request._response = response;
     this.emit(Events.NetworkManager.Response, response);
   }

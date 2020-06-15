@@ -15,7 +15,7 @@
  */
 
 import * as fs from 'fs';
-import * as EventEmitter from 'events';
+import { EventEmitter } from './EventEmitter';
 import * as mime from 'mime';
 import { Events } from './Events';
 import { Connection, CDPSession } from './Connection';
@@ -26,19 +26,20 @@ import { Keyboard, Mouse, Touchscreen, MouseButtonInput } from './Input';
 import { Tracing } from './Tracing';
 import { helper, debugError, assert } from './helper';
 import { Coverage } from './Coverage';
-import { Worker as PuppeteerWorker } from './Worker';
+import { WebWorker } from './WebWorker';
 import { Browser, BrowserContext } from './Browser';
 import { Target } from './Target';
 import { createJSHandle, JSHandle, ElementHandle } from './JSHandle';
-import type { Viewport } from './PuppeteerViewport';
+import { Viewport } from './PuppeteerViewport';
 import { Credentials } from './NetworkManager';
-import { Request as PuppeteerRequest } from './Request';
-import { Response as PuppeteerResponse } from './Response';
+import { HTTPRequest } from './HTTPRequest';
+import { HTTPResponse } from './HTTPResponse';
 import { Accessibility } from './Accessibility';
 import { TimeoutSettings } from './TimeoutSettings';
 import { FileChooser } from './FileChooser';
 import { ConsoleMessage } from './ConsoleMessage';
 import { PuppeteerLifeCycleEvent } from './LifecycleWatcher';
+import Protocol from './protocol';
 
 const writeFileAsync = helper.promisify(fs.writeFile);
 
@@ -127,6 +128,26 @@ const paperFormats: Record<string, PaperFormat> = {
   a6: { width: 4.13, height: 5.83 },
 } as const;
 
+enum VisionDeficiency {
+  none = 'none',
+  achromatopsia = 'achromatopsia',
+  blurredVision = 'blurredVision',
+  deuteranopia = 'deuteranopia',
+  protanopia = 'protanopia',
+  tritanopia = 'tritanopia',
+}
+
+/**
+ * All the events that a page instance may emit.
+ */
+export const enum PageEmittedEvents {
+  /**
+   * Emitted when a dedicated {@link https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API | WebWorker} is spawned by the page.
+   * @eventProperty
+   */
+  WorkerCreated = 'workercreated',
+}
+
 class ScreenshotTaskQueue {
   _chain: Promise<Buffer | string | void>;
 
@@ -143,7 +164,49 @@ class ScreenshotTaskQueue {
   }
 }
 
+/**
+ * Page provides methods to interact with a single tab or [extension background page](https://developer.chrome.com/extensions/background_pages) in Chromium. One [Browser] instance might have multiple [Page] instances.
+ *
+ * @remarks
+ *
+ * @example
+ * This example creates a page, navigates it to a URL, and then * saves a screenshot:
+ * ```js
+ * const puppeteer = require('puppeteer');
+ *
+ * (async () => {
+ *   const browser = await puppeteer.launch();
+ *   const page = await browser.newPage();
+ *   await page.goto('https://example.com');
+ *   await page.screenshot({path: 'screenshot.png'});
+ *   await browser.close();
+ * })();
+ * ```
+ *
+ * The Page class extends from Puppeteer's {@link EventEmitter } class and will emit various events which are documented in the {@link PageEmittedEvents} enum.
+ *
+ * @example
+ * This example logs a message for a single page `load` event:
+ * ```js
+ * page.once('load', () => console.log('Page loaded!'));
+ * ```
+ *
+ * To unsubscribe from events use the `off` method:
+ *
+ * ```js
+ * function logRequest(interceptedRequest) {
+ *   console.log('A request was made:', interceptedRequest.url());
+ * }
+ * page.on('request', logRequest);
+ * // Sometime later...
+ * page.off('request', logRequest);
+ * ```
+ * @public
+ */
 export class Page extends EventEmitter {
+  /**
+   * @internal
+   */
   static async create(
     client: CDPSession,
     target: Target,
@@ -156,28 +219,31 @@ export class Page extends EventEmitter {
     return page;
   }
 
-  _closed = false;
-  _client: CDPSession;
-  _target: Target;
-  _keyboard: Keyboard;
-  _mouse: Mouse;
-  _timeoutSettings = new TimeoutSettings();
-  _touchscreen: Touchscreen;
-  _accessibility: Accessibility;
-  _frameManager: FrameManager;
-  _emulationManager: EmulationManager;
-  _tracing: Tracing;
-  _pageBindings = new Map<string, Function>();
-  _coverage: Coverage;
-  _javascriptEnabled = true;
-  _viewport: Viewport | null;
-  _screenshotTaskQueue: ScreenshotTaskQueue;
-  _workers = new Map<string, PuppeteerWorker>();
+  private _closed = false;
+  private _client: CDPSession;
+  private _target: Target;
+  private _keyboard: Keyboard;
+  private _mouse: Mouse;
+  private _timeoutSettings = new TimeoutSettings();
+  private _touchscreen: Touchscreen;
+  private _accessibility: Accessibility;
+  private _frameManager: FrameManager;
+  private _emulationManager: EmulationManager;
+  private _tracing: Tracing;
+  private _pageBindings = new Map<string, Function>();
+  private _coverage: Coverage;
+  private _javascriptEnabled = true;
+  private _viewport: Viewport | null;
+  private _screenshotTaskQueue: ScreenshotTaskQueue;
+  private _workers = new Map<string, WebWorker>();
   // TODO: improve this typedef - it's a function that takes a file chooser or something?
-  _fileChooserInterceptors = new Set<Function>();
+  private _fileChooserInterceptors = new Set<Function>();
 
-  _disconnectPromise?: Promise<Error>;
+  private _disconnectPromise?: Promise<Error>;
 
+  /**
+   * @internal
+   */
   constructor(client: CDPSession, target: Target, ignoreHTTPSErrors: boolean) {
     super();
     this._client = client;
@@ -209,14 +275,14 @@ export class Page extends EventEmitter {
         return;
       }
       const session = Connection.fromSession(client).session(event.sessionId);
-      const worker = new PuppeteerWorker(
+      const worker = new WebWorker(
         session,
         event.targetInfo.url,
         this._addConsoleMessage.bind(this),
         this._handleException.bind(this)
       );
       this._workers.set(event.sessionId, worker);
-      this.emit(Events.Page.WorkerCreated, worker);
+      this.emit(PageEmittedEvents.WorkerCreated, worker);
     });
     client.on('Target.detachedFromTarget', (event) => {
       const worker = this._workers.get(event.sessionId);
@@ -270,7 +336,7 @@ export class Page extends EventEmitter {
     });
   }
 
-  async _initialize(): Promise<void> {
+  private async _initialize(): Promise<void> {
     await Promise.all([
       this._frameManager.initialize(),
       this._client.send('Target.setAutoAttach', {
@@ -283,7 +349,7 @@ export class Page extends EventEmitter {
     ]);
   }
 
-  async _onFileChooser(
+  private async _onFileChooser(
     event: Protocol.Page.fileChooserOpenedPayload
   ): Promise<void> {
     if (!this._fileChooserInterceptors.size) return;
@@ -294,6 +360,10 @@ export class Page extends EventEmitter {
     this._fileChooserInterceptors.clear();
     const fileChooser = new FileChooser(element, event);
     for (const interceptor of interceptors) interceptor.call(null, fileChooser);
+  }
+
+  public isJavaScriptEnabled(): boolean {
+    return this._javascriptEnabled;
   }
 
   async waitForFileChooser(
@@ -357,11 +427,11 @@ export class Page extends EventEmitter {
     return this._target.browserContext();
   }
 
-  _onTargetCrashed(): void {
+  private _onTargetCrashed(): void {
     this.emit('error', new Error('Page crashed!'));
   }
 
-  _onLogEntryAdded(event: Protocol.Log.entryAddedPayload): void {
+  private _onLogEntryAdded(event: Protocol.Log.entryAddedPayload): void {
     const { level, text, args, source, url, lineNumber } = event.entry;
     if (args) args.map((arg) => helper.releaseObject(this._client, arg));
     if (source !== 'worker')
@@ -399,7 +469,7 @@ export class Page extends EventEmitter {
     return this._frameManager.frames();
   }
 
-  workers(): PuppeteerWorker[] {
+  workers(): WebWorker[] {
     return Array.from(this._workers.values());
   }
 
@@ -587,14 +657,16 @@ export class Page extends EventEmitter {
     return this._buildMetricsObject(response.metrics);
   }
 
-  _emitMetrics(event: Protocol.Performance.metricsPayload): void {
+  private _emitMetrics(event: Protocol.Performance.metricsPayload): void {
     this.emit(Events.Page.Metrics, {
       title: event.title,
       metrics: this._buildMetricsObject(event.metrics),
     });
   }
 
-  _buildMetricsObject(metrics?: Protocol.Performance.Metric[]): Metrics {
+  private _buildMetricsObject(
+    metrics?: Protocol.Performance.Metric[]
+  ): Metrics {
     const result = {};
     for (const metric of metrics || []) {
       if (supportedMetrics.has(metric.name)) result[metric.name] = metric.value;
@@ -602,14 +674,16 @@ export class Page extends EventEmitter {
     return result;
   }
 
-  _handleException(exceptionDetails: Protocol.Runtime.ExceptionDetails): void {
+  private _handleException(
+    exceptionDetails: Protocol.Runtime.ExceptionDetails
+  ): void {
     const message = helper.getExceptionMessage(exceptionDetails);
     const err = new Error(message);
     err.stack = ''; // Don't report clientside error with a node stack attached
     this.emit(Events.Page.PageError, err);
   }
 
-  async _onConsoleAPI(
+  private async _onConsoleAPI(
     event: Protocol.Runtime.consoleAPICalledPayload
   ): Promise<void> {
     if (event.executionContextId === 0) {
@@ -635,7 +709,7 @@ export class Page extends EventEmitter {
     this._addConsoleMessage(event.type, values, event.stackTrace);
   }
 
-  async _onBindingCalled(
+  private async _onBindingCalled(
     event: Protocol.Runtime.bindingCalledPayload
   ): Promise<void> {
     const { name, seq, args } = JSON.parse(event.payload);
@@ -694,7 +768,7 @@ export class Page extends EventEmitter {
     }
   }
 
-  _addConsoleMessage(
+  private _addConsoleMessage(
     type: string,
     args: JSHandle[],
     stackTrace?: Protocol.Runtime.StackTrace
@@ -726,13 +800,18 @@ export class Page extends EventEmitter {
     this.emit(Events.Page.Console, message);
   }
 
-  _onDialog(event: Protocol.Page.javascriptDialogOpeningPayload): void {
+  private _onDialog(event: Protocol.Page.javascriptDialogOpeningPayload): void {
     let dialogType = null;
-    if (event.type === 'alert') dialogType = Dialog.Type.Alert;
-    else if (event.type === 'confirm') dialogType = Dialog.Type.Confirm;
-    else if (event.type === 'prompt') dialogType = Dialog.Type.Prompt;
-    else if (event.type === 'beforeunload')
-      dialogType = Dialog.Type.BeforeUnload;
+    const validDialogTypes = new Set<Protocol.Page.DialogType>([
+      'alert',
+      'confirm',
+      'prompt',
+      'beforeunload',
+    ]);
+
+    if (validDialogTypes.has(event.type)) {
+      dialogType = event.type as Protocol.Page.DialogType;
+    }
     assert(dialogType, 'Unknown javascript dialog type: ' + event.type);
 
     const dialog = new Dialog(
@@ -759,13 +838,13 @@ export class Page extends EventEmitter {
   async goto(
     url: string,
     options: WaitForOptions & { referer?: string }
-  ): Promise<PuppeteerResponse> {
+  ): Promise<HTTPResponse> {
     return await this._frameManager.mainFrame().goto(url, options);
   }
 
-  async reload(options?: WaitForOptions): Promise<PuppeteerResponse | null> {
+  async reload(options?: WaitForOptions): Promise<HTTPResponse | null> {
     const result = await Promise.all<
-      PuppeteerResponse,
+      HTTPResponse,
       Protocol.Page.reloadReturnValue
     >([this.waitForNavigation(options), this._client.send('Page.reload')]);
 
@@ -774,11 +853,11 @@ export class Page extends EventEmitter {
 
   async waitForNavigation(
     options: WaitForOptions = {}
-  ): Promise<PuppeteerResponse | null> {
+  ): Promise<HTTPResponse | null> {
     return await this._frameManager.mainFrame().waitForNavigation(options);
   }
 
-  _sessionClosePromise(): Promise<Error> {
+  private _sessionClosePromise(): Promise<Error> {
     if (!this._disconnectPromise)
       this._disconnectPromise = new Promise((fulfill) =>
         this._client.once(Events.CDPSession.Disconnected, () =>
@@ -791,7 +870,7 @@ export class Page extends EventEmitter {
   async waitForRequest(
     urlOrPredicate: string | Function,
     options: { timeout?: number } = {}
-  ): Promise<PuppeteerRequest> {
+  ): Promise<HTTPRequest> {
     const { timeout = this._timeoutSettings.timeout() } = options;
     return helper.waitForEvent(
       this._frameManager.networkManager(),
@@ -811,7 +890,7 @@ export class Page extends EventEmitter {
   async waitForResponse(
     urlOrPredicate: string | Function,
     options: { timeout?: number } = {}
-  ): Promise<PuppeteerResponse> {
+  ): Promise<HTTPResponse> {
     const { timeout = this._timeoutSettings.timeout() } = options;
     return helper.waitForEvent(
       this._frameManager.networkManager(),
@@ -828,23 +907,23 @@ export class Page extends EventEmitter {
     );
   }
 
-  async goBack(options: WaitForOptions): Promise<PuppeteerResponse | null> {
+  async goBack(options: WaitForOptions): Promise<HTTPResponse | null> {
     return this._go(-1, options);
   }
 
-  async goForward(options: WaitForOptions): Promise<PuppeteerResponse | null> {
+  async goForward(options: WaitForOptions): Promise<HTTPResponse | null> {
     return this._go(+1, options);
   }
 
-  async _go(
+  private async _go(
     delta: number,
     options: WaitForOptions
-  ): Promise<PuppeteerResponse | null> {
+  ): Promise<HTTPResponse | null> {
     const history = await this._client.send('Page.getNavigationHistory');
     const entry = history.entries[history.currentIndex + delta];
     if (!entry) return null;
     const result = await Promise.all<
-      PuppeteerResponse,
+      HTTPResponse,
       Protocol.Page.navigateToHistoryEntryReturnValue
     >([
       this.waitForNavigation(options),
@@ -915,6 +994,21 @@ export class Page extends EventEmitter {
     } catch (error) {
       if (error.message.includes('Invalid timezone'))
         throw new Error(`Invalid timezone ID: ${timezoneId}`);
+      throw error;
+    }
+  }
+
+  async emulateVisionDeficiency(type?: VisionDeficiency): Promise<void> {
+    const visionDeficiencies = new Set(Object.keys(VisionDeficiency));
+    try {
+      assert(
+        !type || visionDeficiencies.has(type),
+        `Unsupported vision deficiency: ${type}`
+      );
+      await this._client.send('Emulation.setEmulatedVisionDeficiency', {
+        type: type || 'none',
+      });
+    } catch (error) {
       throw error;
     }
   }
@@ -1034,7 +1128,7 @@ export class Page extends EventEmitter {
     );
   }
 
-  async _screenshotTask(
+  private async _screenshotTask(
     format: 'png' | 'jpeg',
     options?: ScreenshotOptions
   ): Promise<Buffer | string> {

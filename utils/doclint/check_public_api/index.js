@@ -30,7 +30,7 @@ const EXCLUDE_PROPERTIES = new Set([
 /**
  * @param {!Page} page
  * @param {!Array<!Source>} mdSources
- * @return {!Promise<!Array<!Message>>}
+ * @returns {!Promise<!Array<!Message>>}
  */
 module.exports = async function lint(page, mdSources, jsSources) {
   const mdResult = await mdBuilder(page, mdSources);
@@ -57,7 +57,7 @@ module.exports = async function lint(page, mdSources, jsSources) {
 
 /**
  * @param {!Documentation} doc
- * @return {!Array<string>}
+ * @returns {!Array<string>}
  */
 function checkSorting(doc) {
   const errors = [];
@@ -122,7 +122,7 @@ function checkSorting(doc) {
 /**
  * @param {!Array<!Source>} jsSources
  * @param {!Documentation} jsDocumentation
- * @return {!Documentation}
+ * @returns {!Documentation}
  */
 function filterJSDocumentation(jsSources, jsDocumentation) {
   const apijs = jsSources.find((source) => source.name() === 'api.js');
@@ -142,7 +142,7 @@ function filterJSDocumentation(jsSources, jsDocumentation) {
 
 /**
  * @param {!Documentation} doc
- * @return {!Array<string>}
+ * @returns {!Array<string>}
  */
 function checkDuplicates(doc) {
   const errors = [];
@@ -179,10 +179,32 @@ const expectedNonExistingMethods = new Map([
    */
   ['Page', new Set(['emulateMedia'])],
 ]);
+
+// All the methods from our EventEmitter that we don't document for each subclass.
+const EVENT_LISTENER_METHODS = new Set([
+  'emit',
+  'listenerCount',
+  'off',
+  'on',
+  'once',
+  'removeListener',
+  'addListener',
+  'removeAllListeners',
+]);
+
+/* Methods that are defined in code but are not documented */
+const expectedNotFoundMethods = new Map([
+  ['Browser', EVENT_LISTENER_METHODS],
+  ['BrowserContext', EVENT_LISTENER_METHODS],
+  ['CDPSession', EVENT_LISTENER_METHODS],
+  ['Page', EVENT_LISTENER_METHODS],
+  ['WebWorker', EVENT_LISTENER_METHODS],
+]);
+
 /**
  * @param {!Documentation} actual
  * @param {!Documentation} expected
- * @return {!Array<string>}
+ * @returns {!Array<string>}
  */
 function compareDocumentations(actual, expected) {
   const errors = [];
@@ -204,14 +226,24 @@ function compareDocumentations(actual, expected) {
     const methodDiff = diff(actualMethods, expectedMethods);
 
     for (const methodName of methodDiff.extra) {
-      const missingMethodsForClass = expectedNonExistingMethods.get(className);
-      if (missingMethodsForClass && missingMethodsForClass.has(methodName))
+      const nonExistingMethodsForClass = expectedNonExistingMethods.get(
+        className
+      );
+      if (
+        nonExistingMethodsForClass &&
+        nonExistingMethodsForClass.has(methodName)
+      )
         continue;
 
       errors.push(`Non-existing method found: ${className}.${methodName}()`);
     }
-    for (const methodName of methodDiff.missing)
+
+    for (const methodName of methodDiff.missing) {
+      const missingMethodsForClass = expectedNotFoundMethods.get(className);
+      if (missingMethodsForClass && missingMethodsForClass.has(methodName))
+        continue;
       errors.push(`Method not found: ${className}.${methodName}()`);
+    }
 
     for (const methodName of methodDiff.equal) {
       const actualMethod = actualClass.methods.get(methodName);
@@ -377,7 +409,7 @@ function compareDocumentations(actual, expected) {
         },
       ],
       [
-        'Method Request.abort() errorCode',
+        'Method HTTPRequest.abort() errorCode',
         {
           actualName: 'string',
           expectedName: 'ErrorCode',
@@ -604,6 +636,76 @@ function compareDocumentations(actual, expected) {
           expectedName: '...CookieParam',
         },
       ],
+      [
+        'Method Page.emulateVisionDeficiency() type',
+        {
+          actualName: 'string',
+          expectedName: 'VisionDeficiency',
+        },
+      ],
+      [
+        'Method Accessibility.snapshot() options',
+        {
+          actualName: 'Object',
+          expectedName: 'SnapshotOptions',
+        },
+      ],
+      [
+        'Method EventEmitter.emit() event',
+        {
+          actualName: 'string|symbol',
+          expectedName: 'Object',
+        },
+      ],
+      [
+        'Method EventEmitter.listenerCount() event',
+        {
+          actualName: 'string|symbol',
+          expectedName: 'Object',
+        },
+      ],
+      [
+        'Method EventEmitter.off() event',
+        {
+          actualName: 'string|symbol',
+          expectedName: 'Object',
+        },
+      ],
+      [
+        'Method EventEmitter.on() event',
+        {
+          actualName: 'string|symbol',
+          expectedName: 'Object',
+        },
+      ],
+      [
+        'Method EventEmitter.once() event',
+        {
+          actualName: 'string|symbol',
+          expectedName: 'Object',
+        },
+      ],
+      [
+        'Method EventEmitter.removeListener() event',
+        {
+          actualName: 'string|symbol',
+          expectedName: 'Object',
+        },
+      ],
+      [
+        'Method EventEmitter.addListener() event',
+        {
+          actualName: 'string|symbol',
+          expectedName: 'Object',
+        },
+      ],
+      [
+        'Method EventEmitter.removeAllListeners() event',
+        {
+          actualName: 'string|symbol',
+          expectedName: 'Object',
+        },
+      ],
     ]);
 
     const expectedForSource = expectedNamingMismatches.get(source);
@@ -669,7 +771,7 @@ function compareDocumentations(actual, expected) {
 /**
  * @param {!Array<string>} actual
  * @param {!Array<string>} expected
- * @return {{extra: !Array<string>, missing: !Array<string>, equal: !Array<string>}}
+ * @returns {{extra: !Array<string>, missing: !Array<string>, equal: !Array<string>}}
  */
 function diff(actual, expected) {
   const N = actual.length;

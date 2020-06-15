@@ -18,6 +18,7 @@ const path = require('path');
 const utils = require('./utils');
 const { waitEvent } = utils;
 const expect = require('expect');
+const sinon = require('sinon');
 const {
   getTestState,
   setupTestBrowserHooks,
@@ -127,6 +128,29 @@ describe('Page', function () {
       await page.goto(server.EMPTY_PAGE).catch((error_) => (error = error_));
       expect(error).not.toBe(null);
       expect(error.stack).toContain(__filename);
+    });
+  });
+
+  // This test fails on Firefox on CI consistently but cannot be replicated
+  // locally. Skipping for now to unblock the Mitt release and given FF support
+  // isn't fully done yet but raising an issue to ask the FF folks to have a
+  // look at this.
+  describeFailsFirefox('removing and adding event handlers', () => {
+    it('should correctly fire event handlers as they are added and then removed', async () => {
+      const { page, server } = getTestState();
+
+      const handler = sinon.spy();
+      page.on('response', handler);
+      await page.goto(server.EMPTY_PAGE);
+      expect(handler.callCount).toBe(1);
+      page.off('response', handler);
+      await page.goto(server.EMPTY_PAGE);
+      // Still one because we removed the handler.
+      expect(handler.callCount).toBe(1);
+      page.on('response', handler);
+      await page.goto(server.EMPTY_PAGE);
+      // Two now because we added the handler back.
+      expect(handler.callCount).toBe(2);
     });
   });
 
@@ -694,7 +718,7 @@ describe('Page', function () {
   });
 
   describe('Page.waitForResponse', function () {
-    itFailsFirefox('should work', async () => {
+    it('should work', async () => {
       const { page, server } = getTestState();
 
       await page.goto(server.EMPTY_PAGE);
@@ -727,7 +751,7 @@ describe('Page', function () {
         .catch((error_) => (error = error_));
       expect(error).toBeInstanceOf(puppeteer.errors.TimeoutError);
     });
-    itFailsFirefox('should work with predicate', async () => {
+    it('should work with predicate', async () => {
       const { page, server } = getTestState();
 
       await page.goto(server.EMPTY_PAGE);
@@ -743,7 +767,7 @@ describe('Page', function () {
       ]);
       expect(response.url()).toBe(server.PREFIX + '/digits/2.png');
     });
-    itFailsFirefox('should work with no timeout', async () => {
+    it('should work with no timeout', async () => {
       const { page, server } = getTestState();
 
       await page.goto(server.EMPTY_PAGE);
@@ -909,7 +933,7 @@ describe('Page', function () {
       ]);
       expect(request.headers['user-agent']).toBe('foobar');
     });
-    itFailsFirefox('should work for subframes', async () => {
+    it('should work for subframes', async () => {
       const { page, server } = getTestState();
 
       expect(await page.evaluate(() => navigator.userAgent)).toContain(
@@ -936,7 +960,7 @@ describe('Page', function () {
     });
   });
 
-  describeFailsFirefox('Page.setContent', function () {
+  describe('Page.setContent', function () {
     const expectedOutput =
       '<html><head></head><body><div>hello</div></body></html>';
     it('should work', async () => {
@@ -1321,7 +1345,7 @@ describe('Page', function () {
       expect(styleContent).toContain(path.join('assets', 'injectedstyle.css'));
     });
 
-    itFailsFirefox('should work with content', async () => {
+    it('should work with content', async () => {
       const { page, server } = getTestState();
 
       await page.goto(server.EMPTY_PAGE);
@@ -1433,7 +1457,7 @@ describe('Page', function () {
   });
 
   describe('printing to PDF', function () {
-    itFailsFirefox('can print to PDF and save to file', async () => {
+    it('can print to PDF and save to file', async () => {
       // Printing to pdf is currently only supported in headless
       const { isHeadless, page } = getTestState();
 
@@ -1591,7 +1615,7 @@ describe('Page', function () {
         )
       ).toEqual(true);
     });
-    itFailsFirefox('should throw if passed in non-strings', async () => {
+    it('should throw if passed in non-strings', async () => {
       const { page } = getTestState();
 
       await page.setContent('<select><option value="12"/></select>');

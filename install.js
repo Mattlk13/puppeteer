@@ -25,6 +25,7 @@
  */
 
 const compileTypeScriptIfRequired = require('./typescript-if-required');
+const os = require('os');
 
 const firefoxVersions =
   'https://product-details.mozilla.org/1.0/firefox_versions.json';
@@ -96,12 +97,14 @@ async function download() {
 
     /**
      * @param {!Array<string>}
-     * @return {!Promise}
+     * @returns {!Promise}
      */
     function onSuccess(localRevisions) {
-      logPolitely(
-        `${supportedProducts[product]} (${revisionInfo.revision}) downloaded to ${revisionInfo.folderPath}`
-      );
+      if (os.arch() !== 'arm64') {
+        logPolitely(
+          `${supportedProducts[product]} (${revisionInfo.revision}) downloaded to ${revisionInfo.folderPath}`
+        );
+      }
       localRevisions = localRevisions.filter(
         (revision) => revision !== revisionInfo.revision
       );

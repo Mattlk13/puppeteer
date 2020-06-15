@@ -127,7 +127,7 @@ describe('Emulation', () => {
         'iPhone'
       );
     });
-    it('should support clicking', async () => {
+    itFailsFirefox('should support clicking', async () => {
       const { page, server } = getTestState();
 
       await page.emulate(iPhone);
@@ -249,11 +249,6 @@ describe('Emulation', () => {
           () => matchMedia('(prefers-color-scheme: dark)').matches
         )
       ).toBe(false);
-      expect(
-        await page.evaluate(
-          () => matchMedia('(prefers-color-scheme: no-preference)').matches
-        )
-      ).toBe(false);
       await page.emulateMediaFeatures([
         { name: 'prefers-color-scheme', value: 'dark' },
       ]);
@@ -265,11 +260,6 @@ describe('Emulation', () => {
       expect(
         await page.evaluate(
           () => matchMedia('(prefers-color-scheme: light)').matches
-        )
-      ).toBe(false);
-      expect(
-        await page.evaluate(
-          () => matchMedia('(prefers-color-scheme: no-preference)').matches
         )
       ).toBe(false);
       await page.emulateMediaFeatures([
@@ -294,11 +284,6 @@ describe('Emulation', () => {
       expect(
         await page.evaluate(
           () => matchMedia('(prefers-color-scheme: dark)').matches
-        )
-      ).toBe(false);
-      expect(
-        await page.evaluate(
-          () => matchMedia('(prefers-color-scheme: no-preference)').matches
         )
       ).toBe(false);
     });
@@ -349,6 +334,67 @@ describe('Emulation', () => {
       expect(error.message).toBe('Invalid timezone ID: Foo/Bar');
       await page.emulateTimezone('Baz/Qux').catch((error_) => (error = error_));
       expect(error.message).toBe('Invalid timezone ID: Baz/Qux');
+    });
+  });
+
+  describeFailsFirefox('Page.emulateVisionDeficiency', function () {
+    it('should work', async () => {
+      const { page, server } = getTestState();
+
+      await page.setViewport({ width: 500, height: 500 });
+      await page.goto(server.PREFIX + '/grid.html');
+
+      {
+        await page.emulateVisionDeficiency('none');
+        const screenshot = await page.screenshot();
+        expect(screenshot).toBeGolden('screenshot-sanity.png');
+      }
+
+      {
+        await page.emulateVisionDeficiency('achromatopsia');
+        const screenshot = await page.screenshot();
+        expect(screenshot).toBeGolden('vision-deficiency-achromatopsia.png');
+      }
+
+      {
+        await page.emulateVisionDeficiency('blurredVision');
+        const screenshot = await page.screenshot();
+        expect(screenshot).toBeGolden('vision-deficiency-blurredVision.png');
+      }
+
+      {
+        await page.emulateVisionDeficiency('deuteranopia');
+        const screenshot = await page.screenshot();
+        expect(screenshot).toBeGolden('vision-deficiency-deuteranopia.png');
+      }
+
+      {
+        await page.emulateVisionDeficiency('protanopia');
+        const screenshot = await page.screenshot();
+        expect(screenshot).toBeGolden('vision-deficiency-protanopia.png');
+      }
+
+      {
+        await page.emulateVisionDeficiency('tritanopia');
+        const screenshot = await page.screenshot();
+        expect(screenshot).toBeGolden('vision-deficiency-tritanopia.png');
+      }
+
+      {
+        await page.emulateVisionDeficiency('none');
+        const screenshot = await page.screenshot();
+        expect(screenshot).toBeGolden('screenshot-sanity.png');
+      }
+    });
+
+    it('should throw for invalid vision deficiencies', async () => {
+      const { page } = getTestState();
+
+      let error = null;
+      await page
+        .emulateVisionDeficiency('invalid')
+        .catch((error_) => (error = error_));
+      expect(error.message).toBe('Unsupported vision deficiency: invalid');
     });
   });
 });

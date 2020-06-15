@@ -93,7 +93,7 @@ export class DOMWorld {
   }
 
   /**
-   * @return {!Promise<!ExecutionContext>}
+   * @returns {!Promise<!ExecutionContext>}
    */
   executionContext(): Promise<ExecutionContext> {
     if (this._detached)
@@ -106,7 +106,7 @@ export class DOMWorld {
   /**
    * @param {Function|string} pageFunction
    * @param {!Array<*>} args
-   * @return {!Promise<!JSHandle>}
+   * @returns {!Promise<!JSHandle>}
    */
   async evaluateHandle(
     pageFunction: Function | string,
@@ -119,7 +119,7 @@ export class DOMWorld {
   /**
    * @param {Function|string} pageFunction
    * @param {!Array<*>} args
-   * @return {!Promise<*>}
+   * @returns {!Promise<*>}
    */
   async evaluate<ReturnType extends any>(
     pageFunction: Function | string,
@@ -131,7 +131,7 @@ export class DOMWorld {
 
   /**
    * @param {string} selector
-   * @return {!Promise<?ElementHandle>}
+   * @returns {!Promise<?ElementHandle>}
    */
   async $(selector: string): Promise<ElementHandle | null> {
     const document = await this._document();
@@ -179,7 +179,7 @@ export class DOMWorld {
 
   /**
    * @param {string} selector
-   * @return {!Promise<!Array<!ElementHandle>>}
+   * @returns {!Promise<!Array<!ElementHandle>>}
    */
   async $$(selector: string): Promise<ElementHandle[]> {
     const document = await this._document();
@@ -232,7 +232,7 @@ export class DOMWorld {
 
   /**
    * @param {!{url?: string, path?: string, content?: string, type?: string}} options
-   * @return {!Promise<!ElementHandle>}
+   * @returns {!Promise<!ElementHandle>}
    */
   async addScriptTag(options: {
     url?: string;
@@ -497,7 +497,7 @@ export class DOMWorld {
      * @param {boolean} isXPath
      * @param {boolean} waitForVisible
      * @param {boolean} waitForHidden
-     * @return {?Node|boolean}
+     * @returns {?Node|boolean}
      */
     function predicate(
       selectorOrXPath: string,
@@ -690,20 +690,20 @@ async function waitForPredicatePageFunction(
   if (typeof polling === 'number') return await pollInterval(polling);
 
   /**
-   * @return {!Promise<*>}
+   * @returns {!Promise<*>}
    */
-  function pollMutation(): Promise<unknown> {
-    const success = predicate(...args);
+  async function pollMutation(): Promise<unknown> {
+    const success = await predicate(...args);
     if (success) return Promise.resolve(success);
 
     let fulfill;
     const result = new Promise((x) => (fulfill = x));
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver(async () => {
       if (timedOut) {
         observer.disconnect();
         fulfill();
       }
-      const success = predicate(...args);
+      const success = await predicate(...args);
       if (success) {
         observer.disconnect();
         fulfill(success);
@@ -717,35 +717,35 @@ async function waitForPredicatePageFunction(
     return result;
   }
 
-  function pollRaf(): Promise<unknown> {
+  async function pollRaf(): Promise<unknown> {
     let fulfill;
     const result = new Promise((x) => (fulfill = x));
-    onRaf();
+    await onRaf();
     return result;
 
-    function onRaf(): void {
+    async function onRaf(): Promise<unknown> {
       if (timedOut) {
         fulfill();
         return;
       }
-      const success = predicate(...args);
+      const success = await predicate(...args);
       if (success) fulfill(success);
       else requestAnimationFrame(onRaf);
     }
   }
 
-  function pollInterval(pollInterval: number): Promise<unknown> {
+  async function pollInterval(pollInterval: number): Promise<unknown> {
     let fulfill;
     const result = new Promise((x) => (fulfill = x));
-    onTimeout();
+    await onTimeout();
     return result;
 
-    function onTimeout(): void {
+    async function onTimeout(): Promise<unknown> {
       if (timedOut) {
         fulfill();
         return;
       }
-      const success = predicate(...args);
+      const success = await predicate(...args);
       if (success) fulfill(success);
       else setTimeout(onTimeout, pollInterval);
     }
